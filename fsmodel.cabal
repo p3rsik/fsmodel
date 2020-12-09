@@ -39,6 +39,7 @@ library
       base >=4.7 && <5
     , bitvec
     , bytestring
+    , mtl
     , vector
   default-language: Haskell2010
 
@@ -54,6 +55,7 @@ executable fsmodel-exe
     , bitvec
     , bytestring
     , fsmodel
+    , mtl
     , vector
   default-language: Haskell2010
 
@@ -77,5 +79,6 @@ test-suite fsmodel-test
     , bytestring
     , fsmodel
     , hspec
+    , mtl
     , vector
   default-language: Haskell2010

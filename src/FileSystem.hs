@@ -1,7 +1,7 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module FileSystem
-  ( ls,
-    cd,
-    filestat,
+  ( filestat,
     create,
     open,
     close,
@@ -16,49 +16,56 @@ module FileSystem
   )
 where
 
-import Prelude hiding (read, truncate)
 import Data.Vector hiding (create)
 import Data.Word
 import FileSystem.Internal
+import FileSystem.State
+import Prelude hiding (read, truncate)
 
-filestat :: INode -> FileStat
+-- | Returns information about file at 'FilePath'
+filestat :: FS m => FilePath -> m FileStat
 filestat = undefined
 
-ls :: FilePath -> [File]
-ls = undefined
-
-create :: FilePath -> ()
+-- | Creates new file at prefix 'FilePath' with name postfix 'FilePath'
+create :: FS m => FilePath -> m ()
 create = undefined
 
-open :: FilePath -> FileDescriptor
+-- | Opens file at 'FilePath' returning 'FileDescriptor' for future uses
+open :: FS m => FilePath -> m FileDescriptor
 open = undefined
 
-close :: FileDescriptor -> ()
+-- | Closes given 'FileDescriptor'
+close :: FS m => FileDescriptor -> m ()
 close = undefined
 
-read :: FileDescriptor -> Int -> Int -> Vector Word8
+-- | Reads 'Int' bytes at 'Int' offset from 'FileDescriptor'
+read :: FS m => FileDescriptor -> Int -> Int -> m (Vector Word8)
 read = undefined
 
-write :: FileDescriptor -> Int -> Int -> Vector Word8 -> Either FSError Int
+-- | Writes 'Int' bytes at 'Int' offset to 'Filedescriptor'
+write :: FS m => FileDescriptor -> Int -> Int -> Vector Word8 -> m Int
 write = undefined
 
-link :: FilePath -> FilePath -> ()
+-- | Creates symbolic link from 'FilePath' to 'FilePath'
+link :: FS m => FilePath -> FilePath -> m ()
 link = undefined
 
-unlink :: FilePath -> ()
+-- | Destroys symbolic link at 'FilePath'
+unlink :: FS m => FilePath -> m ()
 unlink = undefined
 
-truncate :: FilePath -> Int -> ()
+-- | Truncates file at 'FilePath' to 'Int' bytes
+truncate :: FS m => FilePath -> Int -> m ()
 truncate = undefined
 
-mkdir :: FilePath -> ()
+-- | Creates directory at 'FilePath'
+mkdir :: FS m => FilePath -> m ()
 mkdir = undefined
 
-rmdir :: FilePath -> ()
+-- | Removes directory at 'FilePath'
+rmdir :: FS m => FilePath -> m ()
 rmdir = undefined
 
-cd :: FilePath -> ()
-cd = undefined
-
-symlink :: FilePath -> FilePath -> ()
+-- | Creates soft symbolic link from 'FilePath' to 'FilePath'
+symlink :: FS m => FilePath -> FilePath -> m ()
 symlink = undefined

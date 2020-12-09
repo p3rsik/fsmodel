@@ -25,7 +25,8 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      CLI
+      FileSystem
   other-modules:
       Paths_fsmodel
   hs-source-dirs:
@@ -52,6 +53,8 @@ test-suite fsmodel-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      CLISpec
+      FileSystemSpec
       Paths_fsmodel
   hs-source-dirs:
       test

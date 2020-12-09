@@ -1,0 +1,9 @@
+byte file with blocks
+first block is a superblock, which contains:
+  - block size
+  - block count
+  - timestamps?
+then data-blocks bitmap(in-use\free)
+then inodes bitmap(in-use\free)
+then inode table
+then blocks

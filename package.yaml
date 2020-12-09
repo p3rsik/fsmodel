@@ -21,6 +21,9 @@ description:         Please see the README on GitHub at <https://github.com/p3rs
 
 dependencies:
 - base >= 4.7 && < 5
+- vector
+- bitvec
+- bytestring
 
 library:
   source-dirs: src

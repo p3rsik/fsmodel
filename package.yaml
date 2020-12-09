@@ -2,8 +2,8 @@ name:                fsmodel
 version:             0.1.0.0
 github:              "p3rsik/fsmodel"
 license:             BSD3
-author:              "Yarik"
-maintainer:          "yroslav541@gmail.com"
+author:              "Yarik, Alexandr"
+maintainer:          "yroslav541@gmail.com, dedifferentiator@protonmail.ch"
 copyright:           "2020 Yarik"
 
 extra-source-files:
@@ -24,6 +24,46 @@ dependencies:
 
 library:
   source-dirs: src
+  default-extensions:
+    - BlockArguments
+    - ConstraintKinds
+    - QuantifiedConstraints
+    - DataKinds
+    - DeriveGeneric
+    - DeriveAnyClass
+    - DerivingStrategies
+    - DerivingVia
+    - DuplicateRecordFields
+    - GeneralizedNewtypeDeriving
+    - MultiParamTypeClasses
+    - NamedFieldPuns
+    - LambdaCase
+    - OverloadedLabels
+    - OverloadedLists
+    - OverloadedStrings
+    - PackageImports
+    - PartialTypeSignatures
+    - PatternSynonyms
+    - RankNTypes
+    - RecordWildCards
+    - ScopedTypeVariables
+    - StandaloneDeriving
+    - TupleSections
+    - TypeApplications
+    - TypeFamilies
+    - TypeOperators
+    - ViewPatterns
+  ghc-options:
+    - -Wall
+    - -Wincomplete-uni-patterns
+    - -Wincomplete-record-updates
+    - -Wmonomorphism-restriction
+    - -Wmissing-local-signatures
+    - -Wmissing-exported-signatures
+    - -Wmissing-home-modules
+    - -Widentities
+    - -Wredundant-constraints
+    - -Wpartial-fields
 
 executables:
   fsmodel-exe:
@@ -44,5 +84,10 @@ tests:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    build-tools:
+      - hspec-discover
     dependencies:
     - fsmodel
+    - HUnit
+    - hspec
+    - QuickCheck

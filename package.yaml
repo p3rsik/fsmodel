@@ -25,6 +25,10 @@ dependencies:
 - bitvec
 - bytestring
 - mtl
+- optparse-generic
+- directory
+- filepath
+- bytestring
 
 library:
   source-dirs: src
@@ -34,29 +38,22 @@ library:
     - QuantifiedConstraints
     - DataKinds
     - DeriveGeneric
-    - DeriveAnyClass
-    - DerivingStrategies
-    - DerivingVia
     - DuplicateRecordFields
     - GeneralizedNewtypeDeriving
     - MultiParamTypeClasses
     - NamedFieldPuns
     - LambdaCase
-    - OverloadedLabels
-    - OverloadedLists
     - OverloadedStrings
-    - PackageImports
     - PartialTypeSignatures
     - PatternSynonyms
     - RankNTypes
     - RecordWildCards
     - ScopedTypeVariables
-    - StandaloneDeriving
     - TupleSections
     - TypeApplications
     - TypeFamilies
     - TypeOperators
-    - ViewPatterns
+    - FlexibleContexts
   ghc-options:
     - -Wall
     - -Wincomplete-uni-patterns
@@ -70,7 +67,7 @@ library:
     - -Wpartial-fields
 
 executables:
-  fsmodel-exe:
+  fsmodel:
     main:                Main.hs
     source-dirs:         app
     ghc-options:

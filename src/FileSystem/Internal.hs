@@ -34,10 +34,10 @@ type INodeBitMap = Vector Bit
 -- | SuperBlock is a first block in whole file system
 -- which contains metadata information
 data SuperBlock = SBlock
-  { blockSize :: Int,
-    blockCount :: Int,
-    freeBlocks :: Int,
-    freeINodes :: Int
+  { blockSize :: Word64,
+    blockCount :: Word64,
+    freeBlocks :: Word64,
+    freeINodes :: Word64
   }
   deriving (Show, Eq)
 
@@ -49,9 +49,9 @@ data FileType = File | Directory | Link deriving (Show, Eq, Enum)
 
 -- | INode is a structure that holds metadata about file
 data INode = INode
-  { blockCount :: Int,
+  { blockCount :: Word64,
     fileStat :: FileStat,
-    blocks :: [Int]
+    blocks :: [Word64]
   }
   deriving (Show, Eq)
 

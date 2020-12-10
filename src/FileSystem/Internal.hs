@@ -17,9 +17,9 @@ module FileSystem.Internal
   )
 where
 
-import Data.Bit
-import Data.Vector
-import Data.Word
+import           Data.Bit
+import           Data.Vector
+import           Data.Word
 
 -- | Bitmap for blocks
 -- 1 indicating that block is used
@@ -34,10 +34,10 @@ type INodeBitMap = Vector Bit
 -- | SuperBlock is a first block in whole file system
 -- which contains metadata information
 data SuperBlock = SBlock
-  { blockSize :: Word64,
-    blockCount :: Word64,
-    freeBlocks :: Word64,
-    freeINodes :: Word64
+  { blockSize  :: Word64
+  , blockCount :: Word64
+  , freeBlocks :: Word64
+  , freeINodes :: Word64
   }
   deriving (Show, Eq)
 
@@ -49,9 +49,9 @@ data FileType = File | Directory | Link deriving (Show, Eq, Enum)
 
 -- | INode is a structure that holds metadata about file
 data INode = INode
-  { blockCount :: Word64,
-    fileStat :: FileStat,
-    blocks :: [Word64]
+  { blockCount :: Word64
+  , fileStat   :: FileStat
+  , blocks     :: [Word64]
   }
   deriving (Show, Eq)
 
@@ -59,8 +59,8 @@ data INode = INode
 newtype Block = Block {unBlock :: Vector Word8} deriving (Show, Eq)
 
 data FileStat = FS
-  { size :: Int,
-    fileType :: FileType
+  { size     :: Int
+  , fileType :: FileType
   }
   deriving (Show, Eq)
 

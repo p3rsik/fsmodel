@@ -8,8 +8,9 @@ import System.IO
 import System.Directory
 import System.FilePath
 
-data CMD = CMD
-  { mountDir :: Maybe FilePath <?> "Dir with filesystems(files) to mount, defaults to current dir"
+newtype CMD = CMD
+  { mountDir :: Maybe FilePath <?> "Dir with filesystems(files) to mount, \
+                                   \defaults to current dir"
   }
   deriving (Generic, Show)
 

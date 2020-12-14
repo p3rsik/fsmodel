@@ -28,6 +28,7 @@ library
       CLI
       FileSystem
       FileSystem.Internal
+      FileSystem.Serialize
       FileSystem.State
   other-modules:
       Paths_fsmodel
@@ -37,10 +38,11 @@ library
   ghc-options: -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates -Wmonomorphism-restriction -Wmissing-local-signatures -Wmissing-exported-signatures -Wmissing-home-modules -Widentities -Wredundant-constraints -Wpartial-fields
   build-depends:
       base >=4.7 && <5
-    , bitvec
+    , bitvec >=1.1.0.0
     , bytestring
     , directory
     , filepath
+    , generic-lens
     , mtl
     , optparse-generic
     , vector
@@ -55,11 +57,12 @@ executable fsmodel
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
-    , bitvec
+    , bitvec >=1.1.0.0
     , bytestring
     , directory
     , filepath
     , fsmodel
+    , generic-lens
     , mtl
     , optparse-generic
     , vector
@@ -82,11 +85,12 @@ test-suite fsmodel-test
       HUnit
     , QuickCheck
     , base >=4.7 && <5
-    , bitvec
+    , bitvec >=1.1.0.0
     , bytestring
     , directory
     , filepath
     , fsmodel
+    , generic-lens
     , hspec
     , mtl
     , optparse-generic

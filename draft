@@ -6,4 +6,6 @@ first block is a superblock, which contains:
 then data-blocks bitmap(in-use\free)
 then inodes bitmap(in-use\free)
 then inode table
+  - first inode is always a "/" root directory
 then blocks
+  - first block in inode is filename

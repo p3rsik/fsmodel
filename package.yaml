@@ -22,13 +22,14 @@ description:         Please see the README on GitHub at <https://github.com/p3rs
 dependencies:
 - base >= 4.7 && < 5
 - vector
-- bitvec
+- bitvec >= 1.1.0.0
 - bytestring
 - mtl
 - optparse-generic
 - directory
 - filepath
 - bytestring
+- generic-lens
 
 library:
   source-dirs: src

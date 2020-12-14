@@ -16,16 +16,16 @@ module FileSystem
   )
 where
 
-import Data.Bit
-import qualified Data.ByteString as B
+import           Control.Monad.State
+import           Data.Bit
+import qualified Data.ByteString       as B
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.Vector.Unboxed as V
-import Data.Word
-import Control.Monad.State
-import FileSystem.Internal
-import FileSystem.State
-import System.FilePath.Posix
-import Prelude hiding (read, truncate)
+import qualified Data.Vector.Unboxed   as V
+import           Data.Word
+import           FileSystem.Internal
+import           FileSystem.State
+import           Prelude               hiding (read, truncate)
+import           System.FilePath.Posix
 
 -- | Returns information about file at 'FilePath'
 filestat :: FS m => FilePath -> m FileStat
@@ -37,14 +37,14 @@ filestat path = do
 
 -- | Creates new file at prefix 'FilePath' with name postfix 'FilePath'
 create :: FS m => FilePath -> m ()
-create path = do 
+create path = do
   st@FSS { inodes, inodeBitMap, blockBitMap, mem } <- get
 
   -- TODO: how to check it smoothly
   let _ = case getINodeByPath path inodes of
-            Left e  -> e
-            _       -> error $ show EEXIST
-  let index = case bitIndex 0 inodeBitMap of
+            Left e -> e
+            _      -> error $ show EEXIST
+  let index = case bitIndex 0 $ unIbm inodeBitMap of
             Just i  -> i
             Nothing -> error $ show ENOSPC
 
@@ -59,12 +59,12 @@ create path = do
 
 
   let ni = ino { blockCount = 1
-               , fileStat = FS (length path) File
+               , fileStat = FS (fromIntegral $ length path) File
                , blocks = newBlocks
                }
 
   -- TODO: update directory cont*nt with this file
-  put $ st { inodeBitMap = V.modify (`flipBit` index) inodeBitMap
+  put $ st { inodeBitMap = Ibm . V.modify (`flipBit` index) $ unIbm inodeBitMap
            , blockBitMap = newBMap
              -- it shouldn't panic at index 0,
              -- because 0th index is "/" root dir
@@ -82,8 +82,8 @@ open path = do
   st@FSS { inodes, fdlist } <- get
   let x = case getINodeByPath path inodes of
             Right INode { blocks } -> FileDescriptor (length fdlist) blocks
-            Left  e -> error $ show e
-  
+            Left  e                -> error $ show e
+
   put $ st { fdlist=fdlist <> [x] }
 
   return x
@@ -161,11 +161,11 @@ truncate path size = do
 
   let ino@INode { blockCount } = case getINodeByPath path inodes of
                Right i -> i
-               Left  e   -> error $ show e
+               Left  e -> error $ show e
 
   let index = case getINodeIndexByPath path inodes of
-            Just i -> i
-            Nothing    -> error $ show ENXIST
+            Just i  -> i
+            Nothing -> error $ show ENXIST
 
   let (newBlocks, newBitMap) = findNFreeBlocks
                                blockBitMap
@@ -195,7 +195,7 @@ symlink src dst = do
   -- changing size of src file to the size of ther dst link
   truncate src $ V.length v
 
-  fd <- open src 
+  fd <- open src
   _ <- write src fd (V.length v) 0 v
   close fd
 
@@ -220,24 +220,26 @@ getINodeIndexByPath path inodes = go inodes path 0
             then Just acc
             else go is p $ acc + 1
     go _ _ _ = Nothing
-          
+
 -- | Unlinks entity from INode
 unlinkINodeByPath :: FS m => FilePath
                           -> [INode]
                           -> INodeBitMap
                           -> BlockBitMap
                           -> m ([INode], INodeBitMap, BlockBitMap)
-unlinkINodeByPath path inodes inmap ibmap = do
+unlinkINodeByPath path inodes imap bmap = do
+  let inmap = unIbm imap
+  let ibmap = unBbm bmap
   -- index of inode to unlink
   let index = case getINodeIndexByPath path inodes of
-            Just i -> i
+            Just i  -> i
             Nothing -> error $ show ENXIST
 
   let INode { blocks } = inodes !! index
   let newBMap = ibmap V.// go blocks []
           where go :: [Index Block] -> [(Int, Bit)] -> [(Int, Bit)]
                 go (i:is) vec = go is $ vec <> pure (fromIntegral i, Bit False)
-                go _ vec = vec
+                go _ vec      = vec
 
   let newInos = init (take index inodes)
              <> pure (INode 0 (FS 0 File) [])
@@ -246,7 +248,7 @@ unlinkINodeByPath path inodes inmap ibmap = do
              <> V.singleton (Bit False)
              <> V.drop index inmap
 
-  return (newInos, newIMap, newBMap)
+  return (newInos, Ibm newIMap, Bbm newBMap)
 
 
 -- | Converts indices to Vector
@@ -261,14 +263,15 @@ fromIndToVec inds = do
 
 -- | Find N free blocks
 findNFreeBlocks :: BlockBitMap -> Int -> ([Index Block], BlockBitMap)
-findNFreeBlocks blockMap n = go blockMap n (V.length blockMap) []
-  where go :: BlockBitMap -> Int -> Int -> [Index Block] -> ([Index Block], BlockBitMap)
+findNFreeBlocks Bbm {..} n = let blockMap = unBbm in
+  go blockMap n (V.length blockMap) []
+  where go :: V.Vector Bit -> Int -> Int -> [Index Block] -> ([Index Block], BlockBitMap)
         go _ _ 0 _ = error $ show ENOSPC
         go bmap count off acc =
           case bmap V.! (V.length bmap - off) of
             Bit False -> if count == 0
-                           then (acc <> pure (fromIntegral $ V.length bmap - off), bmap)
+                           then (acc <> pure (fromIntegral $ V.length bmap - off), Bbm bmap)
                            else go (modMap bmap off) (count - 1) (off - 1) acc
             Bit True  -> go bmap count (off - 1) acc
 
-        modMap bmap off = V.modify (`flipBit` (V.length bmap - off)) bmap 
+        modMap bmap off = V.modify (`flipBit` (V.length bmap - off)) bmap

@@ -4,8 +4,8 @@
 --
 -- This module contains types and functions which are used for internal representation of the filesystem
 module FileSystem.Internal
-  ( BlockBitMap
-  , INodeBitMap
+  ( BlockBitMap (..)
+  , INodeBitMap (..)
   , SuperBlock (..)
   , INode (..)
   , Index
@@ -14,6 +14,7 @@ module FileSystem.Internal
   , FileStat (..)
   , FSError (..)
   , FileDescriptor (..)
+  , inodeMaxBlocks
   , readDir
   , readLink
   , getName
@@ -27,35 +28,37 @@ import           Data.Bit
 import qualified Data.ByteString as B
 import qualified Data.Vector.Unboxed as V
 import           Data.Word
-import           Prelude
 
 -- | Bitmap for blocks
 -- 1 indicating that block is used
 -- 0 indicating that block is free
-type BlockBitMap = V.Vector Bit
+newtype BlockBitMap = Bbm { unBbm :: V.Vector Bit} deriving (Show, Eq)
 
 -- | Bitmap for INodes
 -- 1 indicating that inode is used
 -- 0 indicating that inode is free
-type INodeBitMap = V.Vector Bit
+newtype INodeBitMap = Ibm { unIbm :: V.Vector Bit} deriving (Show, Eq)
 
 -- | SuperBlock is a first block in whole file system
 -- which contains metadata information
 data SuperBlock = SBlock
-  { blockSize  :: Word64
-  , blockCount :: Word64
-  , freeBlocks :: Word64
-  , freeINodes :: Word64
-  } deriving (Show, Eq)
+  { blockSize  :: Word64,
+    blockCount :: Word64,
+    freeBlocks :: Word64,
+    inodeCount :: Word64,
+    freeINodes :: Word64
+  }
+  deriving (Show, Eq)
 
 -- | Type of file that INode "holds"
--- 'File' - regular file on disk
+-- 'None' - nothing, empty INode
+-- 'File' - actual file on disk
 -- 'Directory' - directory
 -- 'Link' - symbolic link
-data FileType = File | Directory | Link deriving (Show, Eq, Enum)
+data FileType = None | File | Directory | Link deriving (Show, Eq, Enum)
 
 data FileStat = FS
-  { size     :: Int
+  { size     :: Word64
   , fileType :: FileType
   } deriving (Show, Eq)
 
@@ -74,6 +77,9 @@ data INode = INode
   , fileStat   :: FileStat
   , blocks     :: [Index Block]
   } deriving (Show, Eq)
+
+inodeMaxBlocks :: Int
+inodeMaxBlocks = 16
 
 -- | Block in memory, which is actually a vector of bytes with fixed size
 newtype Block = Block { unBlock :: V.Vector Word8 } deriving (Show, Eq)

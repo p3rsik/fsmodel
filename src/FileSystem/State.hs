@@ -22,24 +22,24 @@ import           Data.Word
 import           FileSystem.Internal
 
 data FState = FSS
-  { metadata    :: SuperBlock
-  , blockBitMap :: BlockBitMap
-  , inodeBitMap :: INodeBitMap
-  , inodes      :: [INode]
-  , mem         :: [Block]
-  , fdlist      :: [FileDescriptor]
+  { metadata    :: !SuperBlock
+  , blockBitMap :: !BlockBitMap
+  , inodeBitMap :: !INodeBitMap
+  , inodes      :: ![INode]
+  , mem         :: ![Block]
+  , fdlist      :: ![FileDescriptor]
   } deriving (Show, Eq)
 type FS m = (MonadState FState m, MonadError FSError m)
 
--- | Create new FileSystem with 'Word54' block size,
+-- | Create new FileSystem with 'Word64' block size,
 -- 'Word64' block amount and 'Word64' inode amount
 createFS :: Word64 -> Word64 -> Word64  -> FState
 createFS bSize bCount iCount  = FSS {..}
   where
-    metadata = SBlock bSize bCount maxBound iCount maxBound
+    metadata = SBlock bSize bCount bCount iCount iCount
     blockBitMap = Bbm . V.replicate (fromIntegral bCount) $ Bit False
     inodeBitMap = Ibm . V.replicate (fromIntegral iCount) $ Bit False
-    inodes = INode 1 (FS 0 Directory) [0] : replicate (fromIntegral iCount) (INode 0 (FS 0 None) [])
+    inodes = INode 1 (FS 0 Directory) [0] : replicate (fromIntegral iCount - 1) (INode 0 (FS 0 None) [])
     mem = replicate (fromIntegral bCount) . Block $ V.replicate (fromIntegral bSize) 0
     fdlist :: [FileDescriptor]
     fdlist = []

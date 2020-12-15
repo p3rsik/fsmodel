@@ -9,14 +9,15 @@ module FileSystem.Serialize
   )
 where
 
+import           Control.Monad
 import           Data.Bit
 import           Data.Bits
-import qualified Data.ByteString      as B
--- import           Data.Vector.Storable
-import qualified Data.Vector.Unboxed  as V
+import qualified Data.ByteString     as B
+import           Data.Foldable
+import qualified Data.Vector.Unboxed as V
 import           Data.Word
 import           FileSystem.Internal
-import FileSystem.State
+import           FileSystem.State
 
 class Serialize a where
   type SizeOf a :: *
@@ -27,93 +28,163 @@ class Serialize a where
   -- | Decodes 'a' from 'ByteString', can possibly fail
   decode :: B.ByteString -> Maybe a
 
+instance Serialize Word8 where
+  type SizeOf Word8 = Int
+  sizeOf = 1
+  encode = B.singleton
+  decode b
+    | B.length b >= sizeOf @Word8 = Just $ B.head b
+    | otherwise = Nothing
+
 instance Serialize Word64 where
   type SizeOf Word64 = Int
   sizeOf = 8
-  encode = undefined
+  encode w = B.pack [fromIntegral . shiftR w $ 8 * i | i <- [7, 6..0]]
   decode b
-    | B.length b >= sizeOf @Word64 = Just . flip shiftR 8 $ B.foldl' bytesToWord64 0 b
+    | B.length b >= sizeOf @Word64 =
+      Just $ b7 .|. fromIntegral (B.head $ B.drop 7 b)
     | otherwise = Nothing
     where
+      b7 = B.foldl' bytesToWord64 0 $ B.take 7 b
       bytesToWord64 :: Word64 -> Word8 -> Word64
       bytesToWord64 acc el = flip shift 8 $ fromIntegral el .|. acc
-
--- TODO: Decide what to do with this functions, do we need them at all?
--- toWord8 :: Word64 -> [Word8]
--- toWord8 r = [fromIntegral . shiftR r $ 8 * i | i <- [3, 2, 1, 0]]
-
--- fromWord8 :: [Word8] -> Word64
--- fromWord8 = foldl
 
 instance Serialize SuperBlock where
   type SizeOf SuperBlock = Int
   sizeOf = 40
-  encode = undefined
+  encode SBlock {..} =
+    encode blockSize <>
+    encode blockCount <>
+    encode freeBlocks <>
+    encode inodeCount <>
+    encode freeINodes
   decode b
-    | B.length b >= 40 = SBlock <$> bs <*> bc <*> fb  <*> ic <*> fi
+    | B.length b >= sizeOf @SuperBlock =
+      SBlock <$> bs <*> bc <*> fb  <*> ic <*> fi
     | otherwise = Nothing
     where
-      bs = decode $ B.take 8 b
-      bc = decode . B.take 8 $ B.drop 8 b
-      fb = decode . B.take 8 $ B.drop 16 b
-      ic = decode . B.take 8 $ B.drop 24 b
-      fi = decode . B.take 8 $ B.drop 32 b
+      s = sizeOf @Word64
+      bs = decode b
+      bc = decode $ B.drop s b
+      fb = decode $ B.drop (s * 2) b
+      ic = decode $ B.drop (s * 3) b
+      fi = decode $ B.drop (s * 4) b
 
 instance Serialize BlockBitMap where
   type SizeOf BlockBitMap = SuperBlock -> Int
   -- First 8 bytes for size + (amount of blocks * size of block) / 8
   -- because 8 bits(info for 8 blocks) gets packed into 1 byte
-  sizeOf SBlock {..} = 8 + fromIntegral (blockCount * blockSize) `div` 8
-  encode = undefined
+  sizeOf SBlock {..} = 8 + fromIntegral blockCount `div` 8
+  encode Bbm {..} =
+    let len = encode @Word64 . fromIntegral $ (V.length unBbm `div` 8) + 8
+        bmap = cloneToByteString unBbm
+    in len <> bmap
   decode b
     | B.length b >= size =
-      Just . Bbm . cloneFromByteString . B.take size $ B.drop 8 b
+      Just . Bbm . cloneFromByteString . B.take (size - s) $ B.drop s b
     | otherwise = Nothing
     where
       size = maybe maxBound fromIntegral $ decode @Word64 b
+      s = sizeOf @Word64
 
 instance Serialize INodeBitMap where
   type SizeOf INodeBitMap = SuperBlock -> Int
   -- Look at BlockBitMap instance for description
   sizeOf SBlock {..} = 8 + fromIntegral inodeCount `div` 8
-  encode = undefined
+  encode Ibm {..} =
+    let len = encode @Word64 . fromIntegral $ (V.length unIbm `div` 8) + 8
+        bmap = cloneToByteString unIbm
+    in len <> bmap
   decode b
     | B.length b >= size =
-      Just . Ibm . cloneFromByteString . B.take size $ B.drop 8 b
+      Just . Ibm . cloneFromByteString . B.take (size - s) $ B.drop s b
     | otherwise = Nothing
     where
       size = maybe maxBound fromIntegral $ decode @Word64 b
+      s = sizeOf @Word64
+
+instance Serialize FileType where
+  type SizeOf FileType = Int
+  sizeOf = sizeOf @Word8
+  encode = B.singleton . fromIntegral . fromEnum
+  decode b
+    | B.length b >= sizeOf @FileType = Just . toEnum . fromIntegral $ B.head b
+    | otherwise = Nothing
 
 instance Serialize FileStat where
   type SizeOf FileStat = Int
-  sizeOf = 9
-  encode = undefined
+  sizeOf = sizeOf @Word64 + sizeOf @FileType
+  encode FS {..} =
+    let s = encode size
+        ft = encode fileType
+    in s <> ft
   decode b
-    | B.length b >= sizeOf @FileStat = flip FS ft <$> size
+    | B.length b >= sizeOf @FileStat = FS <$> size <*> ft
     | otherwise = Nothing
     where
-      size = decode $ B.take 8 b
-      ft = toEnum . fromIntegral . B.head $ B.drop 8 b
+      size = decode b
+      s = sizeOf @Word64
+      ft = decode $ B.drop s b
 
 instance Serialize INode where
   type SizeOf INode = Int
-  sizeOf = 8 + sizeOf @FileStat + 8 * inodeMaxBlocks
-  encode = undefined
+  sizeOf = sizeOf @Word64 + sizeOf @FileStat + sizeOf @Word64 * inodeMaxBlocks
+  encode INode {..} =
+    let bc = encode blockCount
+        fs = encode fileStat
+        b = foldl' (<>) B.empty $ encode <$>
+          if length blocks <= inodeMaxBlocks
+          then blocks <> replicate (inodeMaxBlocks - length blocks) 0
+          else  blocks
+    in bc <> fs <> b
   decode b
-    | B.length b >= sizeOf @INode = INode <$> bc <*> fs <*> bs
+    | B.length b >= sizeOf @INode = do
+        bc <- decode b
+        fs <- decode $ B.drop (sizeOf @Word64) b
+        let hs = sizeOf @Word64 + sizeOf @FileStat
+        bs <- traverse decode $ [B.drop (hs + i * 8) b
+                                | i <- [0 .. (inodeMaxBlocks - 1)]]
+        return . INode bc fs $ take (fromIntegral bc) bs
     | otherwise = Nothing
-    where
-      bc = decode $ B.take 8 b
-      fs = decode @FileStat $ B.drop 8 b
-      bs = traverse decode $ [B.drop ((8 + sizeOf @FileStat) + i * 8) b | i <- [0 .. (inodeMaxBlocks - 1)]]
 
-instance Serialize Word8 where
-  type SizeOf Word8 = Int
-  sizeOf = 1
-  encode = undefined
-  decode b
-    | B.length b >= sizeOf @Word8 = Just $ B.head b
-    | otherwise = Nothing
+instance Serialize FState where
+  type SizeOf FState = SuperBlock -> Int
+  sizeOf sb@SBlock {..} =
+    sizeOf @SuperBlock +
+    sizeOf @BlockBitMap sb +
+    sizeOf @INodeBitMap sb +
+    sizeOf @INode * fromIntegral inodeCount +
+    fromIntegral (blockSize * blockCount)
+  encode FSS {..} =
+    let sb = encode metadata
+        bmap = encode blockBitMap
+        imap = encode inodeBitMap
+        ins = foldl' (<>) B.empty $ encode <$> inodes
+        bs = foldl' (<>) B.empty $ encodeBlock <$> mem
+     in sb <> bmap <> imap <> ins <> bs
+  decode b = do
+    sb@SBlock {..} <- decode b
+    let bSize = fromIntegral blockSize
+        bCount = fromIntegral blockCount
+        iCount = fromIntegral inodeCount
+    let toDrop = sizeOf @SuperBlock
+    bbm <- decode $ B.drop toDrop b
+    let toDrop1 = toDrop + sizeOf @BlockBitMap sb
+    ibm <- decode $ B.drop toDrop1 b
+    let toDrop2 = toDrop1 + sizeOf @INodeBitMap sb
+    ins <- traverse (\i -> decode $ B.drop (toDrop2 + sizeOf @INode * i) b) [0..iCount - 1]
+    when (length ins /= iCount) Nothing
+    let toDrop3 = toDrop2 + sizeOf @INode * iCount
+    bs <- getBlocks bCount bSize $ B.drop toDrop3 b
+    return $ FSS sb bbm ibm ins bs []
+    where
+      -- | traverse for ByteString
+      go :: (B.ByteString -> Maybe a) -> Int -> Int -> B.ByteString -> Maybe [a]
+      go _ _ 0 _  = Just []
+      go f s c bs = (:) <$> f bs <*> go f s (c - 1) (B.drop s bs)
+
+      getBlocks :: Int -> Int -> B.ByteString -> Maybe [Block]
+      getBlocks c s = go (decodeBlock s) s c
 
 encodeBlock :: Block -> B.ByteString
 encodeBlock = B.pack . V.toList . unBlock
@@ -122,40 +193,3 @@ decodeBlock :: Int -> B.ByteString -> Maybe Block
 decodeBlock size b
   | B.length b >= size = Just . Block . V.fromList . B.unpack $ B.take size b
   | otherwise = Nothing
-
-instance Serialize FState where
-  type SizeOf FState = SuperBlock -> Int
-  sizeOf = undefined
-  encode = undefined
-  decode b = do
-    sb@SBlock {..} <- decode b
-    let bSize = fromIntegral blockSize
-        bCount = fromIntegral blockCount
-        iCount = fromIntegral inodeCount
-        bmSize = sizeOf @BlockBitMap sb
-    bbm <- decode . flip B.drop b $ sizeOf @SuperBlock
-    let toDrop = sizeOf @SuperBlock + sizeOf @BlockBitMap sb
-    ibm <- decode $ B.drop toDrop b
-    let toDrop = toDrop + sizeOf @INodeBitMap sb
-    ins <- traverse (\i -> decode $ B.drop (toDrop + sizeOf @INode * i) b) [0..iCount - 1]
-    let toDrop = toDrop + sizeOf @INode * iCount
-    bs <- getBlocks bCount bSize $ B.drop toDrop b
-    return $ FSS sb bbm ibm ins bs []
-    where
-      -- | traverse for ByteString
-      go :: (B.ByteString -> Maybe a) -> Int -> Int -> B.ByteString -> Maybe [a]
-      go _ _ 0 _ = Just []
-      go f s c b = (:) <$> f b <*> go f s (c - 1) (B.drop s b)
-
-      getBlocks :: Int -> Int -> B.ByteString -> Maybe [Block]
-      getBlocks c s = go (decodeBlock s) s c
-
--- data FState = FSS
-  -- { metadata    :: SuperBlock
-  -- , blockBitMap :: BlockBitMap
-  -- , inodeBitMap :: INodeBitMap
-  -- , inodes      :: [INode]
-  -- , mem         :: [Block]
-  -- , fdlist      :: [FileDescriptor]
-  -- } deriving (Show, Eq)
-

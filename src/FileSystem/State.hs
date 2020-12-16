@@ -37,7 +37,7 @@ createFS bSize bCount iCount  = FSS {..}
     metadata = SBlock bSize bCount maxBound iCount maxBound
     blockBitMap = Bbm . V.replicate (fromIntegral bCount) $ Bit False
     inodeBitMap = Ibm . V.replicate (fromIntegral iCount) $ Bit False
-    inodes = INode 1 (FS 0 Directory) [0] : replicate (fromIntegral iCount) (INode 0 (FS 0 None) [])
+    inodes = INode 1 0 (FS 0 Directory) [0] : replicate (fromIntegral iCount) (INode 0 0 (FS 0 None) [])
     mem = replicate (fromIntegral bCount) . Block $ V.replicate (fromIntegral bSize) 0
     fdlist :: [FileDescriptor]
     fdlist = []

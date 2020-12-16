@@ -15,10 +15,6 @@ module FileSystem.Internal
   , FSError (..)
   , FileDescriptor (..)
   , inodeMaxBlocks
-  , readDir
-  , readLink
-  , getName
-  , putName
   , toByteString
   , toVectorWord8
   )
@@ -74,6 +70,7 @@ type Index a = Word64
 -- | INode is a structure that holds metadata about file
 data INode = INode
   { blockCount :: Word64
+  , linkCount  :: Word64
   , fileStat   :: FileStat
   , blocks     :: [Index Block]
   } deriving (Show, Eq)
@@ -93,26 +90,10 @@ data FileDescriptor = FileDescriptor
 
 ---------------------------ERRORS---------------------------------
 
-data FSError = EEXIST | ENXIST | ENOSPC | ENOMEM deriving (Eq, Show)
+data FSError = EEXIST | EFAULT | EISDIR | ENXIST | ENOSPC | ENOMEM deriving (Eq, Show)
 
 --------------------------FUNCTIONS-------------------------------
 
--- | Reads list of inodes indices from blocks
-readDir :: [Index Block] -> [Index INode]
-readDir = undefined
-
--- | Reads hardlink
-readLink :: [Index Block] -> Index INode
-readLink = undefined
-
--- | Reads Blocks and returns the name of the file
-getName :: [Index Block] -> FilePath
-getName = undefined
-
--- | Writes copies first vector in the beginning of the 2nd vector,
--- which ought to be larger than the 1st one
-putName :: V.Vector a -> V.Vector a -> V.Vector a
-putName = undefined
 
 -- | Converts Vector Word8 to ByteString
 toByteString :: V.Vector Word8 -> B.ByteString

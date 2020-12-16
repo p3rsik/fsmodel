@@ -100,12 +100,13 @@ instance Serialize INode where
   sizeOf = 8 + sizeOf @FileStat + 8 * inodeMaxBlocks
   encode = undefined
   decode b
-    | B.length b >= sizeOf @INode = INode <$> bc <*> fs <*> bs
+    | B.length b >= sizeOf @INode = INode <$> bc <*> lc <*> fs <*> bs
     | otherwise = Nothing
     where
       bc = decode $ B.take 8 b
-      fs = decode @FileStat $ B.drop 8 b
-      bs = traverse decode $ [B.drop ((8 + sizeOf @FileStat) + i * 8) b | i <- [0 .. (inodeMaxBlocks - 1)]]
+      lc = decode $ B.take 8 $ B.drop 8 b
+      fs = decode @FileStat $ B.drop 16 b
+      bs = traverse decode $ [B.drop ((16 + sizeOf @FileStat) + i * 8) b | i <- [0 .. (inodeMaxBlocks - 1)]]
 
 instance Serialize Word8 where
   type SizeOf Word8 = Int

@@ -73,7 +73,7 @@ test-suite fsmodel-test
   main-is: Spec.hs
   other-modules:
       CLISpec
-      FileSystem.StateSpec
+      FileSystem.SerializeSpec
       FileSystemSpec
       Paths_fsmodel
   hs-source-dirs:

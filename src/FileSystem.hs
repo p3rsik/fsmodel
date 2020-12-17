@@ -13,6 +13,7 @@ module FileSystem
     mkdir,
     rmdir,
     symlink,
+    FSError (..)
   )
 where
 

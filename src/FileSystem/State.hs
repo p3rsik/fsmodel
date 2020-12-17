@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module      : FileSystem.State
@@ -16,6 +17,7 @@ import           Control.Monad.Except
 import           Control.Monad.State
 import           Data.Bit
 import qualified Data.Vector.Unboxed  as V
+import Data.ByteString (unpack)
 import           Data.Word
 import           FileSystem.Internal
 
@@ -27,6 +29,7 @@ data FState = FSS
   , mem         :: ![Block]
   , fdlist      :: ![FileDescriptor]
   } deriving (Show, Eq)
+
 type FS m = (MonadState FState m, MonadError FSError m)
 
 -- | Create new FileSystem with 'Word64' block size,
@@ -35,10 +38,12 @@ createFS :: Word64 -> Word64 -> Word64  -> FState
 createFS bSize bCount iCount  = FSS {..}
   where
     metadata = SBlock bSize bCount bCount iCount iCount
-    blockBitMap = Bbm . V.replicate (fromIntegral bCount) $ Bit False
-    inodeBitMap = Ibm . V.replicate (fromIntegral iCount) $ Bit False
-    inodes = INode 1 0 (FS 0 Directory) [0] : replicate (fromIntegral iCount - 1) (INode 0 0 (FS 0 None) [])
-    mem = replicate (fromIntegral bCount) . Block $ V.replicate (fromIntegral bSize) 0
+    -- First Block and INode is reserved for root (/)
+    blockBitMap = Bbm . V.cons (Bit True) . V.replicate (fromIntegral bCount - 1) $ Bit False
+    inodeBitMap = Ibm . V.cons (Bit True) . V.replicate (fromIntegral iCount - 1) $ Bit False
+    inodes = INode 1 0 (FS 1 Directory) [1] :
+      replicate (fromIntegral iCount - 1) (INode 0 0 (FS 0 None) [])
+    mem = Block (V.fromList (unpack "/") <> V.replicate (fromIntegral  bSize - 1) 0) :
+      replicate (fromIntegral bCount - 1) (Block $ V.replicate (fromIntegral bSize) 0)
     fdlist :: [FileDescriptor]
     fdlist = []
-

@@ -19,6 +19,10 @@ import           Data.Word
 import           FileSystem.Internal
 import           FileSystem.State
 
+newtype SError = DecodeEr { errMessage :: String} deriving (Eq, Show)
+
+type Res a = Either SError a
+
 class Serialize a where
   type SizeOf a :: *
   -- | Size of 'a' in bytes
@@ -26,15 +30,21 @@ class Serialize a where
   -- | Encodes 'a' in 'ByteString'
   encode :: a -> B.ByteString
   -- | Decodes 'a' from 'ByteString', can possibly fail
-  decode :: B.ByteString -> Maybe a
+  decode :: B.ByteString -> Res a
+
+-- | Helper function to convert between error types
+convEr :: (String -> String) -> Either SError a -> Either SError a
+convEr f res = case res of
+                 Right r -> Right r
+                 Left (DecodeEr m) -> Left . DecodeEr $ f m
 
 instance Serialize Word8 where
   type SizeOf Word8 = Int
   sizeOf = 1
   encode = B.singleton
   decode b
-    | B.length b >= sizeOf @Word8 = Just $ B.head b
-    | otherwise = Nothing
+    | B.length b >= sizeOf @Word8 = Right $ B.head b
+    | otherwise = Left $ DecodeEr "Can't decode Word8: bytestring is too short"
 
 instance Serialize Word64 where
   type SizeOf Word64 = Int
@@ -42,8 +52,8 @@ instance Serialize Word64 where
   encode w = B.pack [fromIntegral . shiftR w $ 8 * i | i <- [7, 6..0]]
   decode b
     | B.length b >= sizeOf @Word64 =
-      Just $ b7 .|. fromIntegral (B.head $ B.drop 7 b)
-    | otherwise = Nothing
+      Right $ b7 .|. fromIntegral (B.head $ B.drop 7 b)
+    | otherwise = Left $ DecodeEr "Can't decode Word64: bytestring is too short"
     where
       b7 = B.foldl' bytesToWord64 0 $ B.take 7 b
       bytesToWord64 :: Word64 -> Word8 -> Word64
@@ -59,16 +69,16 @@ instance Serialize SuperBlock where
     encode inodeCount <>
     encode freeINodes
   decode b
-    | B.length b >= sizeOf @SuperBlock =
-      SBlock <$> bs <*> bc <*> fb  <*> ic <*> fi
-    | otherwise = Nothing
+    | B.length b >= sizeOf @SuperBlock = SBlock <$> bs <*> bc <*> fb  <*> ic <*> fi
+    | otherwise = Left $ DecodeEr "Can't decode SuperBlock: bytestring is too short"
     where
       s = sizeOf @Word64
-      bs = decode b
-      bc = decode $ B.drop s b
-      fb = decode $ B.drop (s * 2) b
-      ic = decode $ B.drop (s * 3) b
-      fi = decode $ B.drop (s * 4) b
+      conv m = convEr (\x -> "Can't decode " <> m <> ":\n\t" <> x)
+      bs = conv "block size" $ decode b
+      bc = conv "block count" . decode $ B.drop s b
+      fb = conv "free blocks" . decode $ B.drop (s * 2) b
+      ic = conv "inode count" . decode $ B.drop (s * 3) b
+      fi = conv "free inodes" . decode $ B.drop (s * 4) b
 
 instance Serialize BlockBitMap where
   type SizeOf BlockBitMap = SuperBlock -> Int
@@ -79,12 +89,14 @@ instance Serialize BlockBitMap where
     let len = encode @Word64 . fromIntegral $ (V.length unBbm `div` 8) + 8
         bmap = cloneToByteString unBbm
     in len <> bmap
-  decode b
-    | B.length b >= size =
-      Just . Bbm . cloneFromByteString . B.take (size - s) $ B.drop s b
-    | otherwise = Nothing
+  decode b = case size of
+               Right s' -> let si = fromIntegral s' in
+                           if B.length b >= si
+                           then Right . Bbm . cloneFromByteString . B.take (si - s) $ B.drop s b
+                           else Left $ DecodeEr "Can't decode BlockBitMap: the bytestring is too short"
+               _ -> Left $ DecodeEr "Can't decode BlockBitMap: Can't get (size :: Word64) from the bytestring"
     where
-      size = maybe maxBound fromIntegral $ decode @Word64 b
+      size = decode @Word64 b
       s = sizeOf @Word64
 
 instance Serialize INodeBitMap where
@@ -95,12 +107,14 @@ instance Serialize INodeBitMap where
     let len = encode @Word64 . fromIntegral $ (V.length unIbm `div` 8) + 8
         bmap = cloneToByteString unIbm
     in len <> bmap
-  decode b
-    | B.length b >= size =
-      Just . Ibm . cloneFromByteString . B.take (size - s) $ B.drop s b
-    | otherwise = Nothing
+  decode b = case size of
+               Right s' -> let si = fromIntegral s' in
+                           if B.length b >= si
+                           then Right . Ibm . cloneFromByteString . B.take (si - s) $ B.drop s b
+                           else Left $ DecodeEr "Can't decode INodeBitMap: the bytestring is too short"
+               _ -> Left $ DecodeEr "Can't decode INodeBitMap: Can't get (size :: Word64) from the bytestring"
     where
-      size = maybe maxBound fromIntegral $ decode @Word64 b
+      size = decode @Word64 b
       s = sizeOf @Word64
 
 instance Serialize FileType where
@@ -108,8 +122,8 @@ instance Serialize FileType where
   sizeOf = sizeOf @Word8
   encode = B.singleton . fromIntegral . fromEnum
   decode b
-    | B.length b >= sizeOf @FileType = Just . toEnum . fromIntegral $ B.head b
-    | otherwise = Nothing
+    | B.length b >= sizeOf @FileType = Right . toEnum . fromIntegral $ B.head b
+    | otherwise = Left $ DecodeEr "Can't decode FileType: the bytestring is too short"
 
 instance Serialize FileStat where
   type SizeOf FileStat = Int
@@ -120,7 +134,7 @@ instance Serialize FileStat where
     in s <> ft
   decode b
     | B.length b >= sizeOf @FileStat = FS <$> size <*> ft
-    | otherwise = Nothing
+    | otherwise = Left $ DecodeEr "Can't decode FileStat: the bytestring is too short"
     where
       size = decode b
       s = sizeOf @Word64
@@ -140,14 +154,16 @@ instance Serialize INode where
     in bc <> lc <> fs <> b
   decode b
     | B.length b >= sizeOf @INode = do
-        bc <- decode b
-        lc <- decode $ B.drop (sizeOf @Word64) b
-        fs <- decode $ B.drop (sizeOf @Word64 * 2) b
+        bc <- conv "block count" $ decode b
+        lc <- conv "link count" . decode $ B.drop (sizeOf @Word64) b
+        fs <- conv "FileStat" . decode $ B.drop (sizeOf @Word64 * 2) b
         let hs = sizeOf @Word64 * 2 + sizeOf @FileStat
-        bs <- traverse decode $ [B.drop (hs + i * 8) b
-                                | i <- [0 .. (inodeMaxBlocks - 1)]]
+        bs <- traverse (conv "Block" . decode) $ [B.drop (hs + i * 8) b
+                                            | i <- [0 .. (inodeMaxBlocks - 1)]]
         return . INode bc lc fs $ take (fromIntegral bc) bs
-    | otherwise = Nothing
+    | otherwise = Left $ DecodeEr "Can't decode INode: the bytestring is too short"
+    where
+      conv m = convEr (\x -> "Can't decode " <> m <> ":\n\t" <> x)
 
 instance Serialize FState where
   type SizeOf FState = SuperBlock -> Int
@@ -175,23 +191,23 @@ instance Serialize FState where
     ibm <- decode $ B.drop toDrop1 b
     let toDrop2 = toDrop1 + sizeOf @INodeBitMap sb
     ins <- traverse (\i -> decode $ B.drop (toDrop2 + sizeOf @INode * i) b) [0..iCount - 1]
-    when (length ins /= iCount) Nothing
+    when (length ins /= iCount) . Left . DecodeEr $ "Decoded " <> show (length ins) <> " inodes, needed " <> show iCount
     let toDrop3 = toDrop2 + sizeOf @INode * iCount
     bs <- getBlocks bCount bSize $ B.drop toDrop3 b
     return $ FSS sb bbm ibm ins bs []
     where
       -- | traverse for ByteString
-      go :: (B.ByteString -> Maybe a) -> Int -> Int -> B.ByteString -> Maybe [a]
-      go _ _ 0 _  = Just []
+      go :: (B.ByteString -> Res a) -> Int -> Int -> B.ByteString -> Res [a]
+      go _ _ 0 _  = Right []
       go f s c bs = (:) <$> f bs <*> go f s (c - 1) (B.drop s bs)
 
-      getBlocks :: Int -> Int -> B.ByteString -> Maybe [Block]
+      getBlocks :: Int -> Int -> B.ByteString -> Res [Block]
       getBlocks c s = go (decodeBlock s) s c
 
 encodeBlock :: Block -> B.ByteString
 encodeBlock = B.pack . V.toList . unBlock
 
-decodeBlock :: Int -> B.ByteString -> Maybe Block
+decodeBlock :: Int -> B.ByteString -> Res Block
 decodeBlock size b
-  | B.length b >= size = Just . Block . V.fromList . B.unpack $ B.take size b
-  | otherwise = Nothing
+  | B.length b >= size = Right . Block . V.fromList . B.unpack $ B.take size b
+  | otherwise = Left $ DecodeEr "Can't decode Block: the bytestring is too short"

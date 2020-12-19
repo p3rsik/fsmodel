@@ -19,13 +19,14 @@ import           Data.Bit
 import qualified Data.Vector.Unboxed  as V
 import Data.ByteString (unpack)
 import           Data.Word
-import           FileSystem.Internal
+import           FileSystem.DataTypes
 
 data FState = FSS
   { metadata    :: !SuperBlock
   , blockBitMap :: !BlockBitMap
   , inodeBitMap :: !INodeBitMap
   , inodes      :: ![INode]
+  , fpathes     :: ![FilePath]
   , mem         :: ![Block]
   , fdlist      :: ![FileDescriptor]
   } deriving (Show, Eq)
@@ -41,9 +42,9 @@ createFS bSize bCount iCount  = FSS {..}
     -- First Block and INode is reserved for root (/)
     blockBitMap = Bbm . V.cons (Bit True) . V.replicate (fromIntegral bCount - 1) $ Bit False
     inodeBitMap = Ibm . V.cons (Bit True) . V.replicate (fromIntegral iCount - 1) $ Bit False
-    inodes = INode 1 0 (FS 1 Directory) [1] :
+    inodes = INode 1 1 (FS 1 Directory) [0] :
       replicate (fromIntegral iCount - 1) (INode 0 0 (FS 0 None) [])
-    mem = Block (V.fromList (unpack "/") <> V.replicate (fromIntegral  bSize - 1) 0) :
+    fpathes = [] :: [FilePath]
+    mem = Block (V.fromList (unpack "/") <> V.replicate (fromIntegral bSize - 1) 0) :
       replicate (fromIntegral bCount - 1) (Block $ V.replicate (fromIntegral bSize) 0)
-    fdlist :: [FileDescriptor]
-    fdlist = []
+    fdlist = [] :: [FileDescriptor]

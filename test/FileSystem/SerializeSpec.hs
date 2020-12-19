@@ -7,7 +7,7 @@ module FileSystem.SerializeSpec (spec) where
 import Test.Hspec
 import Test.QuickCheck
 import FileSystem.Serialize
-import FileSystem.Internal
+import FileSystem.DataTypes
 import FileSystem.State
 import Data.Word
 import qualified Data.Vector.Unboxed as V

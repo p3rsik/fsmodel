@@ -2,12 +2,17 @@
 
 module FileSystemSpec (spec) where
 
-import FileSystem
-import FileSystem.State
-import Test.Hspec
-import Control.Monad.State
-import Control.Monad.Except
-import FileSystem.Internal
+import           Control.Exception
+import           Control.Monad.State
+import           Control.Monad.Except
+import qualified Data.ByteString     as B
+import qualified Data.Vector.Unboxed as V
+import           FileSystem
+import           FileSystem.DataTypes
+import           FileSystem.Internal
+import           FileSystem.State
+import           Test.Hspec
+
 
 newtype App a = App
   { runApp :: StateT FState (ExceptT FSError IO) a
@@ -23,6 +28,7 @@ spec = do
   describe "filestat" $ do
     it "check root (/) directory" $ do
       let fs = createFS 16 16 16
+      print fs
       let res = FS 1 Directory
       res' <- eval fs $ filestat "/"
       res' `shouldBe` res
@@ -34,6 +40,10 @@ spec = do
         create "/kek"
         filestat "/kek"
       res' `shouldBe` res
+    
+    it "throws error EEXIST" $ do
+      let fs = createFS 16 16 16
+      (`shouldThrow` anyException) <$> eval fs $ create "/"
 
   describe "create" $ do
     it "create new file" $ do
@@ -62,6 +72,34 @@ spec = do
         fd <- open "/kek"
         close fd
       fdlist nfs `shouldBe` []
+
+  describe "getName" $ do
+    it "returns a file name from memory" $ do
+      let memory = mem $ createFS 16 16 16
+      (trimNull . getName) memory `shouldBe` "/"
+
+    it "panics due to the empty list" $ do
+      (trimNull . getName) [] `shouldBe` []
+  
+  describe "getINOByPath" $ do
+    it "return (index, INode)" $ do
+      let fs = createFS 16 16 16
+          expect = (0, head $ inodes fs)
+      got <- eval fs $ getINOByPath "/" (inodes fs) (mem fs)
+      expect `shouldBe` got
+
+    it "throws error; empty inodes list" $ do
+      let fs = createFS 16 16 16
+      (`shouldThrow` anyException) <$> eval fs
+        $ getINOByPath "/" [] (mem fs)
+
+    it "throws error; empty inodes list" $ do
+      let fs = createFS 16 16 16
+      (`shouldThrow` anyException) <$> eval fs
+        $ getINOByPath "/" (inodes fs) []
+
+
+
     -- read,
     -- write,
     -- link,

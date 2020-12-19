@@ -16,7 +16,7 @@ import qualified Data.ByteString     as B
 import           Data.Foldable
 import qualified Data.Vector.Unboxed as V
 import           Data.Word
-import           FileSystem.Internal
+import           FileSystem.DataTypes
 import           FileSystem.State
 
 newtype SError = DecodeEr { errMessage :: String} deriving (Eq, Show)
@@ -177,8 +177,8 @@ instance Serialize FState where
     let sb = encode metadata
         bmap = encode blockBitMap
         imap = encode inodeBitMap
-        ins = foldl' (<>) B.empty $ encode <$> inodes
-        bs = foldl' (<>) B.empty $ encodeBlock <$> mem
+        ins  = foldl' (<>) B.empty $ encode <$> inodes
+        bs   = foldl' (<>) B.empty $ encodeBlock <$> mem
      in sb <> bmap <> imap <> ins <> bs
   decode b = do
     sb@SBlock {..} <- decode b
@@ -194,7 +194,8 @@ instance Serialize FState where
     when (length ins /= iCount) . Left . DecodeEr $ "Decoded " <> show (length ins) <> " inodes, needed " <> show iCount
     let toDrop3 = toDrop2 + sizeOf @INode * iCount
     bs <- getBlocks bCount bSize $ B.drop toDrop3 b
-    return $ FSS sb bbm ibm ins bs []
+    -- TODO: add import of filepathes into the state
+    return $ FSS sb bbm ibm ins [] bs []
     where
       -- | traverse for ByteString
       go :: (B.ByteString -> Res a) -> Int -> Int -> B.ByteString -> Res [a]

@@ -17,7 +17,7 @@ import           Control.Monad.Except
 import           Control.Monad.State
 import           Data.Bit
 import qualified Data.Vector.Unboxed  as V
-import Data.ByteString (unpack)
+import           Data.ByteString (unpack)
 import           Data.Word
 import           FileSystem.DataTypes
 
@@ -42,7 +42,7 @@ createFS bSize bCount iCount  = FSS {..}
     -- First Block and INode is reserved for root (/)
     blockBitMap = Bbm . V.cons (Bit True) . V.replicate (fromIntegral bCount - 1) $ Bit False
     inodeBitMap = Ibm . V.cons (Bit True) . V.replicate (fromIntegral iCount - 1) $ Bit False
-    inodes = INode 1 1 (FS 1 Directory) [0] :
+    inodes = INode 1 1 (FS bSize Directory) [0] :
       replicate (fromIntegral iCount - 1) (INode 0 0 (FS 0 None) [])
     fpathes = [] :: [FilePath]
     mem = Block (V.fromList (unpack "/") <> V.replicate (fromIntegral bSize - 1) 0) :

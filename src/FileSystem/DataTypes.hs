@@ -15,13 +15,10 @@ module FileSystem.DataTypes
   , FSError (..)
   , FileDescriptor (..)
   , inodeMaxBlocks
-  , toByteString
-  , toVectorWord8
   )
 where
 
 import           Data.Bit
-import           Data.ByteString
 import           Data.Vector.Unboxed
 import           Data.Word
 
@@ -58,12 +55,10 @@ data FileStat = FS
   , fileType :: FileType
   } deriving (Show, Eq)
 
-
 ----------------------------INDEX---------------------------------
 
 -- | Index to either Block or INode
 type Index a = Word64
-
 
 -----------------------INODE AND BLOCK----------------------------
 
@@ -87,7 +82,6 @@ data FileDescriptor = FileDescriptor
   , unBlocks :: [Index Block]
   } deriving (Show, Eq)
 
-
 ---------------------------ERRORS---------------------------------
 
 -- | FileSystem errors
@@ -98,13 +92,3 @@ data FSError = EEXIST -- ^ File already exists
              | ENOMEM -- ^ Cannot allocate new mem
              | ENXIST -- ^ File doesn't exist
              deriving (Eq, Show)
-
---------------------------FUNCTIONS-------------------------------
-
--- | Converts Vector Word8 to ByteString
-toByteString :: Vector Word8 -> ByteString
-toByteString = pack . toList
-
--- | Converts ByteString to Vector Word8
-toVectorWord8 :: ByteString -> Vector Word8
-toVectorWord8 = fromList . unpack

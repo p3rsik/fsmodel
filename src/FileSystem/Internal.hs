@@ -1,12 +1,18 @@
 module FileSystem.Internal
-  ( getName
+  ( checkExist
+  , decINOSz
+  , insert
+  , getName
   , getINOByPath
   , findNFreeBlocks
   , fromIndToVec
+  , fromVecToBlock
   , putName
   , readDir
   , readDirLinks
   , rmEntryFromDir
+  , toByteString
+  , toVectorWord8
   , trimNull
   , unlinkINodeByPath
   , writeDir
@@ -14,6 +20,7 @@ module FileSystem.Internal
   ) where
 
 import           Control.Monad.State
+import           Control.Monad.Except
 import           Data.Bit
 import qualified Data.ByteString       as B
 import qualified Data.ByteString.Char8 as BS
@@ -26,16 +33,22 @@ import           FileSystem.State
 
 -- | Finds inode index by filename
 getINOByPath :: FS m => FilePath -> [INode] -> [Block] -> m (Int, INode)
-getINOByPath path ind bl = return $ go 0 path ind bl
+getINOByPath path ind bl = go 0 path ind bl
   where
-    go :: Int -> FilePath -> [INode] -> [Block] -> (Int, INode)
+    go :: FS m => Int -> FilePath -> [INode] -> [Block] -> m (Int, INode)
+    go _ _ _ [] = throwError EFAULT
     go acc p (i:is) mem =
-          -- TODO: check if name is not empty string
           if p == (trimNull . getName)
                   (map (\el -> mem !! fromIntegral el) (blocks i))
-          then (acc, ind !! acc)
+          then return (acc, ind !! acc)
           else go (acc + 1) p is mem
-    go _ _ _ _ = error $ show ENXIST 
+    go _ _ _ _ = throwError ENXIST
+
+-- | Checks if file exists
+checkExist :: FS m => FilePath -> [INode] -> [Block] -> m Bool
+checkExist path ind bl = catchError
+  (getINOByPath path ind bl >> return True)
+  (const $ return False)
 
 -- | Unlinks entity from the INode
 unlinkINodeByPath :: FS m => FilePath
@@ -88,50 +101,59 @@ fromIndToVec (_:inds) = do
   where go :: [Block] -> [Index Block] -> V.Vector Word8 -> V.Vector Word8
         go mem (i:is) acc = go mem is $ acc V.++ unBlock (mem !! fromIntegral i)
         go _   []     acc = acc
-fromIndToVec _ = error $ show EFAULT
+fromIndToVec _ = return V.empty
 
 -- | Find N free blocks
 findNFreeBlocks :: BlockBitMap -> Int -> ([Index Block], BlockBitMap)
-findNFreeBlocks Bbm {..} n = let blockMap = unBbm in
-  go blockMap n (V.length blockMap) []
+findNFreeBlocks Bbm {..} n = go unBbm n (V.length unBbm) []
   where go :: V.Vector Bit -> Int -> Int -> [Index Block] -> ([Index Block], BlockBitMap)
         go _ _ 0 _ = error $ show ENOSPC
         go bmap count off acc =
           case bmap V.! (V.length bmap - off) of
-            Bit False -> if count == 0
-                           then (acc <> pure (fromIntegral $ V.length bmap - off), Bbm bmap)
-                           else go (modMap bmap off) (count - 1) (off - 1) acc
+            Bit False -> if count == 1
+                           then (acc <> pure (index off), Bbm $ modMap bmap off)
+                           else go (modMap bmap off)
+                                   (count - 1)
+                                   (off - 1)
+                                   (acc <> pure (index off))
             Bit True  -> go bmap count (off - 1) acc
 
         modMap bmap off = V.modify (`flipBit` (V.length bmap - off)) bmap
+        index off = fromIntegral $ V.length unBbm - off :: Index Block
 
 -- | Writes Vector Word8 to blocks under given indices
-writeMem :: Int -> [Block] -> [Index Block] -> V.Vector Word8 -> Int -> [Block]
+writeMem :: Int -- ^ Block size
+         -> [Block]
+         -> [Index Block]
+         -> V.Vector Word8 -- ^ data to write
+         -> Int -- ^ offset
+         -> [Block]
 writeMem _ mem _ _ 0 = mem
-writeMem bsize mem (_:b:bs) v vecOff = do
-  writeMem bsize
-         (init (take (fromIntegral b) mem)
-          <> pure (Block
-                -- if number of bytes to write is less than
-                -- block size than write them only to
-                -- a part of vector
-                if bsize <= vecOff
-                  then (V.++)
-                       (unBlock (last $ take (fromIntegral b) mem))
-                       (V.take bsize (V.drop (V.length v - vecOff) v))
-                  else V.take bsize $ V.drop (V.length v - vecOff) v)
-          <> drop (fromIntegral b) mem)
-         bs
-         v
-         (if bsize <= vecOff
-            then 0
-            else vecOff - bsize)
+writeMem bsize mem blk vec off = offBl : go bsize mem (drop (fst offset) blk) vec off
+  where go :: Int -> [Block] -> [Index Block] -> V.Vector Word8 -> Int -> [Block]
+        go bsz m (b:bs) vec off = fromVecToBlock vec off
+        oc = off `div` bsize
+        om = off `mod` bsize
+        offset = (oc, om) -- offset in list and in block
+        -- fix offset
+        offBl = Block . V.take (snd offset) . unBlock
+               $ mem !! fromIntegral (head $ take (fst offset) blk)
 writeMem _ mem _ _ _ = mem
+
+-- | ...data, Block size
+fromVecToBlock :: V.Vector Word8 -> Int -> [Block]
+fromVecToBlock vec bsize = go vec 0
+  where go :: V.Vector Word8 -> Int -> [Block]
+        go v fo = if V.length v <= fo
+                  then []
+                  else Block (dl v fo V.++ rp v fo) : go v (fo + bsize)
+        dl v fo = V.take bsize $ V.drop fo v :: V.Vector Word8
+        rp v fo = V.replicate (bsize - V.length (dl v fo)) 0 :: V.Vector Word8
 
 -- | Reads list of inodes indices from blocks
 readDir :: FS m => [Index Block] -> m BS.ByteString
-readDir (_:index) = toByteString <$> fromIndToVec index
-readDir _ = error $ show EFAULT
+readDir index = toByteString <$> fromIndToVec index
+readDir _ = return BS.empty
 
 -- | Retract filepathes from dir cont*nt
 readDirLinks :: FS m => BS.ByteString -> m [FilePath]
@@ -148,7 +170,7 @@ writeDir vData (_:ind) = do
       bSize = fromIntegral blockSize
 
   return $ writeMem bSize mem ind nData $ V.length nData
-writeDir _ _ = error $ show EFAULT
+writeDir _ _ = throwError EFAULT
 
 -- | Creates Vector Word8 with the given size
 -- and bytestring at the beginning
@@ -156,8 +178,8 @@ putName :: B.ByteString -> Int -> V.Vector Word8
 putName src size
   | size < B.length src = V.fromListN size $ B.unpack src
   | otherwise = (V.++)
-                (V.generate len f) $
-                V.fromList $ B.unpack src
+                (V.fromList $ B.unpack src)
+                $ V.generate len f
   where len = size - B.length src
         f :: a -> Word8
         f = const . fromIntegral . ord $ '\NUL'
@@ -172,3 +194,27 @@ trimNull :: FilePath -> FilePath
 trimNull ('\NUL':_) = []
 trimNull (x:xs) = x : trimNull xs
 trimNull _ = []
+
+-- | Decreases size of inode's mem
+decINOSz :: [Index Block] -> Int -> BlockBitMap -> ([Index Block], BlockBitMap)
+decINOSz blk 0  bmap = (blk, bmap)
+decINOSz blk sz bmap = (take sz blk, go (drop (sz - 1) blk) bmap)
+  where go :: [Index Block] -> BlockBitMap -> BlockBitMap
+        go [] bm = bm
+        go (i:is) bm = go is $ fp bm $ fromIntegral i
+        fp bm index = Bbm . V.modify (`flipBit` index) $ unBbm bm
+
+-- | Insert element into list
+insert :: a -> Int -> [a] -> [a]
+insert el 0   lst = [el] <> drop 1 lst
+insert el pos lst = init $ take pos lst
+                 <> [el]
+                 <> drop pos lst
+
+-- | Converts Vector Word8 to ByteString
+toByteString :: V.Vector Word8 -> B.ByteString
+toByteString = B.pack . V.toList
+
+-- | Converts ByteString to Vector Word8
+toVectorWord8 :: B.ByteString -> V.Vector Word8
+toVectorWord8 = V.fromList . B.unpack

@@ -74,12 +74,13 @@ test-suite fsmodel-test
   main-is: Spec.hs
   other-modules:
       CLISpec
+      FileSystem.InternalSpec
       FileSystem.SerializeSpec
       FileSystemSpec
       Paths_fsmodel
   hs-source-dirs:
       test
-  default-extensions: OverloadedStrings
+  default-extensions: OverloadedStrings GeneralizedNewtypeDeriving
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-tool-depends:
       hspec-discover:hspec-discover

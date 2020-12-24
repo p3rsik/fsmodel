@@ -90,6 +90,7 @@ tests:
       - hspec-discover
     default-extensions:
       - OverloadedStrings
+      - GeneralizedNewtypeDeriving
     dependencies:
     - fsmodel
     - HUnit

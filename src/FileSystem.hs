@@ -36,54 +36,50 @@ filestat path = do
   FSS { .. } <- get
   fileStat <$> (snd <$> getINOByPath path inodes mem)
 
--- TODO: limit the path lenght
 -- | Creates new file at prefix 'FilePath' with name postfix 'FilePath'
 create :: FS m => FilePath -> m ()
 create path = do
   st@FSS { .. } <- get
 
-  catchError (void $ getINOByPath path inodes mem) \_ -> do
-    let index = fromMaybe (error $ show ENOSPC) (bitIndex 0 $ unIbm inodeBitMap)
+  isExist <- checkExist path inodes mem
+  when isExist $ throwError EEXIST
 
-    -- allocating mem and writing a filename to the first block
-    let (newBlocks, newBMap) = findNFreeBlocks blockBitMap 1
-        newIndex = fromIntegral $ head newBlocks
-        newName = putName (BS.pack path)
-                  $ fromIntegral $ blockSize metadata
+  let index = fromMaybe (error $ show ENOSPC)
+              (bitIndex 0 $ unIbm inodeBitMap)
 
-    let newMem = init $ take newIndex mem
-              <> pure (Block newName)
-              <> drop newIndex mem
+  -- allocating mem and writing a filename to the first block
+  let (fBlocks, nBMap) = findNFreeBlocks blockBitMap 1
+      nameIndex = fromIntegral $ head fBlocks
+      newName   = putName (BS.pack path) $ fromIntegral . blockSize $ metadata
 
-    -- adding record to the dir
-    let ino = inodes !! index
-        ni = ino { blockCount = 1
-                  , linkCount = 1
-                  , fileStat = FS (fromIntegral $ length path) File
-                  , blocks = newBlocks
-                  }
+  let newMem = insert (Block newName) nameIndex mem
+  -- adding record to the dir
+  let ino = inodes !! index
+      ni = ino { blockCount = 1
+               , linkCount  = 1
+               , fileStat   = FS (blockSize metadata) File
+               , blocks     = fBlocks
+               }
 
-    put $ st { inodeBitMap = Ibm . V.modify (`flipBit` index) $ unIbm inodeBitMap
-              , blockBitMap = newBMap
-                -- it shouldn't panic at index 0,
-                -- because 0th index is "/" root dir
-                -- which shouldn't be deleted
-                -- and something created over it
-              , inodes = init $ take index inodes
-                      <> pure ni
-                      <> drop index inodes
-              , mem = newMem
-              }
+  put $ st { inodeBitMap = Ibm . V.modify (`flipBit` index) $ unIbm inodeBitMap
+           , blockBitMap = nBMap
+              -- it shouldn't panic at index 0,
+              -- because 0th index is "/" root dir
+              -- which shouldn't be deleted
+              -- and something created over it
+           , inodes = insert ni index inodes
+           , mem    = newMem
+           }
+ 
+  -- -- updating dir cont*nt
+  let dirPath = takeDirectory path
+  INode { blocks } <- (inodes !!) <$> (fst <$> getINOByPath dirPath inodes mem)
 
-    -- updating dir cont*nt
-    let dirPath = dropFileName path
-    INode { blocks } <- (inodes !!) <$> (fst <$> getINOByPath dirPath inodes mem)
 
-    dir <- readDir blocks
-    newDir <- writeDir (dir <> BS.pack ("\n" <> path <> ";" <> show index)) blocks
+  dir <- readDir (tail blocks)
+  newDir <- writeDir (dir <> BS.pack ("\n" <> path <> ";" <> show index)) blocks
 
-    put $ st { mem = newDir }
-  throwError $ error $ show EEXIST
+  put $ st { mem = newDir }
 
 
 -- | Opens file at 'FilePath' returning 'FileDescriptor' for future uses
@@ -104,19 +100,19 @@ close FileDescriptor { unID } = do
 -- | Reads 'Int' bytes at 'Int' offset from 'FileDescriptor'
 read :: FS m => FileDescriptor -> Int -> Int -> m (V.Vector Word8)
 read FileDescriptor { unBlocks } bytes off =
-  V.take bytes . V.drop off <$> fromIndToVec unBlocks
+  V.take bytes . V.drop off <$> fromIndToVec (tail unBlocks)
 
 
 -- | Writes 'Int' bytes at 'Int' offset to 'Filedescriptor'
 write :: FS m => FileDescriptor -> Int -> Int -> V.Vector Word8 -> m Int
 write FileDescriptor { unBlocks } bytes off d = do
-  st@FSS { metadata=SBlock { blockSize }, mem} <- get
+  st@FSS { metadata=SBlock { blockSize }, mem } <- get
 
-  fdBlocks <- fromIndToVec unBlocks
+  fdBlocks <- fromIndToVec $ drop 1 unBlocks
   when (off + bytes < V.length fdBlocks) (error $ show ENOMEM)
 
   put $ st { mem = writeMem (fromIntegral blockSize) mem
-                   unBlocks (V.take bytes d) (V.length d)
+                   (tail unBlocks) (V.take bytes d) off
            }
   return bytes
 
@@ -130,9 +126,6 @@ link src dst = do
                 , linkCount
                 } = inodes !! index
 
-  -- TODO: how to rewrite with when? probably create
-  -- another function
-  -- checking if src is not a dir
   let _ = case fileType of
             None      -> error $ show ENXIST
             Directory -> error $ show EISDIR
@@ -160,8 +153,6 @@ unlink path = do
   st@FSS { .. } <- get
 
   lc <- linkCount . (inodes !!) . fst <$> getINOByPath path inodes mem
-
-  -- TODO: unlink should exit if this `if` statement is correct
   when (lc > 1) $ rmEntryFromDir path $ dropFileName path
 
   (ni, nim, nb) <- unlinkINodeByPath path inodes inodeBitMap blockBitMap
@@ -173,20 +164,41 @@ unlink path = do
 -- | Truncates file at 'FilePath' to 'Int' bytes
 truncate :: FS m => FilePath -> Int -> m ()
 truncate path size = do
-  st@FSS { metadata=SBlock{ blockSize }, inodes, mem, blockBitMap} <- get
+  st@FSS { metadata=SBlock{ blockSize, freeBlocks }
+         , inodes
+         , mem
+         , blockBitMap
+         } <- get
 
-  (index, ino@INode { blockCount }) <- getINOByPath path inodes mem
-  let (newBlocks, newBitMap) = findNFreeBlocks
-                               blockBitMap
-                               (size - fromIntegral (blockCount * blockSize))
+  (index, ino@INode { blockCount
+                    , blocks
+                    , fileStat=FS{ fileType }
+                    }) <- getINOByPath path inodes mem
+  let (nb, nBMap) =
+        if size > bc * bs
+        then (fs, sn)
+        else decINOSz blocks sa blockBitMap
+        where bs = fromIntegral blockSize  :: Int
+              bc = fromIntegral blockCount :: Int
+              rz = size `div` bs
+              md = size `mod` bs
+              -- size of inode measured in number of blocks
+              -- aligned with the block size
+              sa = rz + if md /= 0 then 1 else 0
+              ffb = findNFreeBlocks blockBitMap $ sa - bc
+              fs = blocks <> fst ffb
+              sn = snd ffb
+              
+      -- fix when index = 0
+      inode = ino { fileStat   = fs
+                  , blockCount = bc
+                  , blocks     = nb
+                  }
+             where fs = FS (blockCount * fromIntegral (length nb)) fileType
+                   bc = fromIntegral $ length nb :: Word64
+      newInos = insert inode index inodes
 
-  -- if size > size of blocks of inodes
-      newInos = init $ take index inodes
-             <> pure (ino { blocks=newBlocks })
-             <> drop index inodes
-
-  put st { inodes=newInos, blockBitMap=newBitMap }
-
+  put st { inodes=newInos, blockBitMap=nBMap }
 
 -- | Creates directory at 'FilePath'
 mkdir :: FS m => FilePath -> m ()
@@ -196,9 +208,8 @@ mkdir path = do
   -- TODO: how to check it smoothly
   _ <- getINOByPath path inodes mem 
 
-  let index = case bitIndex 0 $ unIbm inodeBitMap of
-            Just i  -> i
-            Nothing -> error $ show ENOSPC
+  let index = fromMaybe (error $ show ENOSPC)
+              $ bitIndex 0 $ unIbm inodeBitMap
 
 
   let (newBlocks, newBMap) = findNFreeBlocks blockBitMap 1
@@ -210,7 +221,6 @@ mkdir path = do
             <> pure (Block newName)
             <> drop newIndex mem
 
-
   let ino = inodes !! index
   let ni = ino { blockCount = 1
                , linkCount = 1
@@ -218,7 +228,6 @@ mkdir path = do
                , blocks = newBlocks
                }
 
-  -- TODO: update directory cont*nt with this file
   put $ st { inodeBitMap = Ibm . V.modify (`flipBit` index) $ unIbm inodeBitMap
            , blockBitMap = newBMap
            , inodes = init $ take index inodes

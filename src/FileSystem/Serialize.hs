@@ -6,6 +6,8 @@ module FileSystem.Serialize
   (Serialize (..)
   , encodeBlock
   , decodeBlock
+  , SError (..)
+  , Res
   )
 where
 

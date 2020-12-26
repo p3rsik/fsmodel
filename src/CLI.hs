@@ -1,26 +1,33 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module CLI
-  ( getArgs,
+  ( getArgs
+  , runFs
   )
 where
 
-import Options.Generic
-import System.IO
-import System.Directory
-import System.FilePath
+import           CLI.Internal
+import           Options.Generic
 
 newtype CMD = CMD
-  { mountDir :: Maybe FilePath <?> "Dir with filesystems(files) to mount, \
-                                   \defaults to current dir"
+  { mountDir ::
+      Maybe FilePath
+        <?> "Dir with filesystems(files) to mount, \
+            \defaults to current dir"
   }
   deriving (Generic, Show)
 
 instance ParseRecord CMD
 
-getArgs :: IO CMD
+getArgs :: IO FilePath
 getArgs = do
-  getRecord "FileSystem model"
+  p <- getRecord "FileSystem model"
+  case p of
+    Just p' -> return p'
+    Nothing -> return "."
 
--- | Get all FileSystem Model files at 'FilePath'
-getFSFiles :: FilePath -> IO [FilePath]
-getFSFiles path = do
-  filter ((== "fsm") . takeExtension) <$> listDirectory path
+
+runFs :: FilePath -> IO ()
+runFs fp = do
+  help
+  loop fp

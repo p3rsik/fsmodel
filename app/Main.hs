@@ -1,4 +1,8 @@
 module Main where
 
+import CLI
+
 main :: IO ()
-main = putStrLn "kek lol"
+main = do
+    path <- getArgs
+    runFs path

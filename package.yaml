@@ -88,6 +88,9 @@ tests:
     - -with-rtsopts=-N
     build-tools:
       - hspec-discover
+    default-extensions:
+      - OverloadedStrings
+      - GeneralizedNewtypeDeriving
     dependencies:
     - fsmodel
     - HUnit

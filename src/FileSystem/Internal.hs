@@ -12,6 +12,7 @@ module FileSystem.Internal
   , readDirLinks
   , rmEntryFromDir
   , toByteString
+  , toFilePath
   , toVectorWord8
   , trimNull
   , unlinkINodeByPath
@@ -40,7 +41,11 @@ getINOByPath path ind bl = go 0 path ind bl
     go acc p (i:is) mem =
           if p == (trimNull . getName)
                   (map (\el -> mem !! fromIntegral el) (blocks i))
-          then return (acc, ind !! acc)
+          then case fileType $ fileStat i of
+                 Link -> do
+                         ln <- fromIndToVec (tail $ blocks i)
+                         getINOByPath (toFilePath ln) ind bl
+                 _ -> return (acc, ind !! acc)
           else go (acc + 1) p is mem
     go _ _ _ _ = throwError ENXIST
 
@@ -218,3 +223,7 @@ toByteString = B.pack . V.toList
 -- | Converts ByteString to Vector Word8
 toVectorWord8 :: B.ByteString -> V.Vector Word8
 toVectorWord8 = V.fromList . B.unpack
+
+-- | Converts Vector Word8 to FilePath
+toFilePath :: V.Vector Word8 -> FilePath
+toFilePath = BS.unpack . B.pack . V.toList
